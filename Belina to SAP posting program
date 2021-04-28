@@ -1,0 +1,717 @@
+*&---------------------------------------------------------------------*
+*& Report  ZBELINA_POSTING_PROG
+*&
+*&---------------------------------------------------------------------*
+*&
+*&
+*&---------------------------------------------------------------------*
+
+REPORT  ZBELINA_POSTING_PROG.
+
+data: documentheader   type bapiache09,
+
+      w_obj_type       type bapiache09-obj_type,
+      w_obj_key        type bapiache09-obj_key,
+      w_obj_sys        type bapiache09-obj_sys,
+
+      w_logsys         type tbdls-logsys,
+*"     VALUE(OBJ_TYPE) LIKE  BAPIACHE09-OBJ_TYPE
+*"     VALUE(OBJ_KEY) LIKE  BAPIACHE09-OBJ_KEY
+*"     VALUE(OBJ_SYS) LIKE  BAPIACHE09-OBJ_SYS
+
+      e_accountgl      like bapiacgl09,
+      t_accountgl      type standard table of bapiacgl09,
+*"      ACCOUNTRECEIVABLE STRUCTURE  BAPIACAR09 OPTIONAL
+      ls_accountpayable type bapiacap09,
+      it_accountpayable type standard table of bapiacap09,
+*"      ACCOUNTTAX STRUCTURE  BAPIACTX09 OPTIONAL
+      it_accounttax type STANDARD TABLE OF BAPIACTX09,
+
+      e_currencyamount type bapiaccr09,
+      t_currencyamount type standard table of bapiaccr09,
+*"      CRITERIA STRUCTURE  BAPIACKEC9 OPTIONAL
+*"      VALUEFIELD STRUCTURE  BAPIACKEV9 OPTIONAL
+*"      EXTENSION1 STRUCTURE  BAPIACEXTC OPTIONAL
+      e_return         type bapiret2,
+      t_return         type standard table of bapiret2,
+      it_accountreceivable LIKE TABLE OF bapiacar09,
+      ls_accountreceivable TYPE          bapiacar09.
+*"      PAYMENTCARD STRUCTURE  BAPIACPC09 OPTIONAL
+*"      CONTRACTITEM STRUCTURE  BAPIACCAIT OPTIONAL
+*"      EXTENSION2 STRUCTURE  BAPIPAREX OPTIONAL
+*"      REALESTATE STRUCTURE  BAPIACRE09 OPTIONAL
+DATA: loc_amt              TYPE          wrbtr.
+DATA: count type i.
+
+data: itab like alsmex_tabline occurs 0 with header line.
+
+TYPES: Begin of t_record,
+*    name1 like itab-value,
+*    name2 like itab-value,
+*    age   like itab-value,
+    Doc_date like itab-value,
+    Doc_type like itab-value,
+    Company_code like itab-value,
+    Posting_date like itab-value,
+    Period like itab-value,
+    Currency like itab-value,
+    Posting_key like itab-value,
+    Account like itab-value,
+   Amount like itab-value,
+   Tax_code like itab-value,
+    Doc_text like itab-value,
+    Cost_centre like itab-value,
+    End of t_record.
+DATA: it_record type standard table of t_record initial size 0,
+      wa_record type t_record.
+DATA: gd_currentrow type i.
+
+DATA: C_Doc_date like sy-datum,
+      C_Posting_date like sy-datum,
+      account_num(10) type c,
+      cost_centre(10) type c,
+      amt type p DECIMALS 2.
+
+SELECTION-SCREEN: BEGIN OF BLOCK b01 WITH FRAME TITLE text-b01.
+PARAMETER p_infile like rlgrap-filename.
+SELECTION-SCREEN: END OF BLOCK b01.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_infile.
+
+CALL FUNCTION 'KD_GET_FILENAME_ON_F4'
+* EXPORTING
+*   PROGRAM_NAME        = SYST-REPID
+*   DYNPRO_NUMBER       = SYST-DYNNR
+*   FIELD_NAME          = ' '
+*   STATIC              = ' '
+*   MASK                = ' '
+  CHANGING
+    file_name           =  p_infile
+ EXCEPTIONS
+   MASK_TOO_LONG       = 1
+   OTHERS              = 2
+          .
+IF sy-subrc <> 0.
+ MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+         WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+ENDIF.
+************************************************************************
+*START OF SELECTION
+ call function 'ALSM_EXCEL_TO_INTERNAL_TABLE'
+       exporting
+            filename                = p_infile
+            i_begin_col             = '1'
+            i_begin_row             = '1'  "Do not require headings
+            i_end_col               = '12'
+            i_end_row               = '6774'
+       tables
+            intern                  = itab
+       exceptions
+            inconsistent_parameters = 1
+            upload_ole              = 2
+            others                  = 3.
+  if sy-subrc <> 0.
+    message e010(zz) with text-001. "Problem uploading Excel Spreadsheet
+  endif.
+
+* Sort table by rows and colums
+  sort itab by row col.
+
+* Get first row retrieved
+  read table itab index 1.
+
+* Set first row retrieved to current row
+  gd_currentrow = itab-row.
+
+  loop at itab.
+*   Reset values for next row
+    if itab-row ne gd_currentrow.
+      append wa_record to it_record.
+      clear wa_record.
+      gd_currentrow = itab-row.
+    endif.
+
+    case itab-col.
+      when '0001'.                              "First name
+        wa_record-Doc_date = itab-value.
+      when '0002'.                              "Surname
+        wa_record-Doc_type = itab-value.
+      when '0003'.                              "Age
+        wa_record-Company_code = itab-value.
+      when '0004'.                              "First name
+        wa_record-Posting_date = itab-value.
+      when '0005'.                              "First name
+        wa_record-Period = itab-value.
+      when '0006'.                              "First name
+        wa_record-Currency  = itab-value.
+      when '0007'.                              "First name
+        wa_record-Posting_key = itab-value.
+      when '0008'.                              "First name
+        wa_record-Account  = itab-value.
+      when '0009'.                              "First name
+        wa_record-Amount = itab-value.
+      when '0010'.                              "First name
+        wa_record-Tax_code  = itab-value.
+      when '0011'.                              "First name
+        wa_record-Doc_text = itab-value.
+      when '0012'.                              "First name
+        wa_record-Cost_centre = itab-value.
+    endcase.
+  endloop.
+  append wa_record to it_record.
+*!! Excel data is now contained within the internal table IT_RECORD
+
+start-of-selection.
+
+* Display report data for illustration purposes
+count = 0.
+  loop at it_record into wa_record.
+*    write:/     sy-vline,
+*           (10) wa_record-name1, sy-vline,
+*           (10) wa_record-name2, sy-vline,
+*           (10) wa_record-name3, sy-vline,
+*           (10) wa_record-name4, sy-vline,
+*           (10) wa_record-name5, sy-vline,
+*           (10) wa_record-name6, sy-vline,
+*           (10) wa_record-name7, sy-vline,
+*           (10) wa_record-name8, sy-vline,
+*           (10) wa_record-name9, sy-vline,
+*           (10) wa_record-name10, sy-vline,
+*           (10) wa_record-name11, sy-vline,
+*           (10) wa_record-name12, sy-vline.
+    C_Doc_date = wa_record-Doc_date.
+    C_Posting_date = wa_record-Posting_date.
+   account_num = wa_record-Account.
+   cost_centre = wa_record-Cost_centre.
+   CALL FUNCTION 'MOVE_CHAR_TO_NUM'
+     EXPORTING
+       CHR                   = wa_record-Amount
+    IMPORTING
+      NUM                   =  amt
+    EXCEPTIONS
+      CONVT_NO_NUMBER       = 1
+     CONVT_OVERFLOW        = 2
+      OTHERS                = 3
+             .
+   IF SY-SUBRC <> 0.
+* MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*         WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+   ENDIF.
+
+
+*  endloop.
+
+
+
+*start-of-selection.
+
+* For each created document, clear the BAPI workareas
+*  clear documentheader.
+*********************************************************  clear w_logsys.
+*********************************************************
+*********************************************************  clear e_return.
+*********************************************************  clear ls_accountpayable.
+*********************************************************
+*********************************************************  clear w_obj_type.
+*********************************************************  clear w_obj_key.
+*********************************************************  clear w_obj_sys.
+*********************************************************
+*********************************************************  refresh t_accountgl.
+*********************************************************  refresh it_accountpayable.
+*********************************************************  refresh t_currencyamount.
+*********************************************************  refresh t_return.
+
+**************************
+* Fill up DOCUMENTHEADER *
+**************************
+
+* Value field from TTYP table. - AWTYP
+*  documentheader-obj_type = 'BKPF'.
+*  documentheader-obj_type ='BKPFF'.
+
+  call function 'OWN_LOGICAL_SYSTEM_GET'
+    importing
+      own_logical_system             = w_logsys
+    exceptions
+      own_logical_system_not_defined = 1
+      others                         = 2.
+
+  if sy-subrc ne 0.
+    message id sy-msgid type sy-msgty number sy-msgno
+           with sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  endif.
+
+*  documentheader-obj_sys    = w_logsys.
+*
+** Here you should concatenate: the constant '          '
+** Company Code and the Fiscal Year to the OBJ_KEY field.
+*  documentheader-obj_key+00(10) = '$       1'.
+*  "documentheader-obj_key+10(04) = '9100'.
+*  documentheader-obj_key+10(04) = 'TEL1'.
+*  documentheader-obj_key+14(04) = sy-datum+00(04).
+
+  documentheader-username   = sy-uname.
+  documentheader-header_txt = 'BELINAPOSTING'."'THIS IS THE HEADER TEXT'.
+
+* Value field from T022 table, for BAPI, use 'RFBU'
+  documentheader-bus_act    = 'RFBU'.
+
+* Company Code
+  documentheader-comp_code  = 'TEL1'. "wa_ex-col3."9100.
+
+* Document Date
+  documentheader-doc_date   = C_Doc_date."'20200206'."wa_ex-col1."sy-datum.
+* Posting Date
+  documentheader-pstng_date = C_Posting_date."sy-datum."'20200206'."wa_ex-col4."sy-datum.
+* Transaction Date (important when we have conversion rates)
+  documentheader-trans_date = sy-datum.
+* Document Type
+  documentheader-doc_type   =  wa_record-Doc_type."'AB'."wa_ex-col2."'SA'.
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+"G/L
+"Debit
+if wa_record-Posting_key eq '40'.
+  "iteeeeeeeeeeeeeeeeeeeeeeee   40 oz"""""""""""""""""""""""""""""""""""
+  count = count + 1.
+  e_accountgl-itemno_acc      = count."1."rlv_counter.
+e_accountgl-comp_code       = 'TEL1'."w_postings-company.
+
+
+CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+  EXPORTING
+    INPUT  = account_num
+  IMPORTING
+    OUTPUT = account_num.
+
+CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+  EXPORTING
+    INPUT  = cost_centre
+  IMPORTING
+    OUTPUT = cost_centre.
+
+e_accountgl-gl_account      = account_num."wa_record-Account."'0000403172'."w_postings-account.
+
+
+
+e_accountgl-pstng_date      =  C_Posting_date."'20200206'."sy-datum."w_header-pstng_date.
+"e_accountgl-cs_trans_t      = "w_postings-ttype.
+if wa_record-Account eq 172060 or wa_record-Account eq 182382 or wa_record-Account eq 902208 or wa_record-Account eq 902214
+  or wa_record-Account eq 181926.
+  e_accountgl-costcenter      = ' '.
+  else.
+e_accountgl-costcenter      = cost_centre."wa_record-Cost_centre."'0010000000'."w_postings-ccent.
+endif.
+"e_accountgl-profit_ctr      = "w_postings-prcent.
+"e_accountgl-wbs_element     = "w_postings-wbs_element.
+"e_accountgl-orderid         = "w_postings-internal_order.
+e_accountgl-item_text       = wa_record-Doc_text."'back 4 the 1st time'."w_postings-description.
+"e_accountgl-alloc_nmbr      = "w_postings-assignment.
+if wa_record-Account eq 172060 or wa_record-Account eq 182382 or wa_record-Account eq 902208 or wa_record-Account eq 902214
+  or wa_record-Account eq 181926.
+  e_accountgl-tax_code        = ' '.
+  else.
+ e_accountgl-tax_code        = wa_record-Tax_code."'V0'."w_postings-tax_code.
+ endif.
+"e_accountgl-taxjurcode      = "w_postings-juridiction_code.
+"e_accountgl-orderid         = "w_postings-internal_order.
+"e_accountgl-base_uom        = "w_postings-meins.
+"e_accountgl-quantity        = "w_postings-quantity.
+"e_accountgl-part_prctr      = "w_postings-partner_pc.
+"e_accountgl-trade_id        = "w_postings-trading_partner.
+"e_accountgl-value_date      = "w_postings-value_date.
+    APPEND e_accountgl  TO t_accountgl.
+
+
+  clear e_accountgl.
+
+****************************
+* Fill up T_CURRENCYAMOUNT *
+****************************
+  clear e_currencyamount.
+
+* For each line item (GL Account, AP or AR), set up the
+* values per related tables.
+
+* For example, the following line item refers to GL Acc
+* Item nº 1
+  e_currencyamount-itemno_acc = count."1."count.
+
+* Currency Key
+  e_currencyamount-currency   = wa_record-Currency."'USD'. "wa_ex-col6."'BRL'.
+
+* Document Currency amount
+  e_currencyamount-amt_doccur =  amt."wa_record-Amount. "'6.00'. "wa_ex-col9."'100.00'.
+
+  append e_currencyamount to t_currencyamount.
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+"credit
+ELSEif wa_record-Posting_key eq '50'.
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  "iteeeeeeeeeeeeeeeeeeeeeeee   50 oz
+
+** For each GL Account line item, increase this workarea,
+** starting on 1.
+  count = count + 1.
+  e_accountgl-itemno_acc = count."2.
+
+  e_accountgl-comp_code       = 'TEL1'."w_postings-company.
+
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+  EXPORTING
+    INPUT  = account_num
+  IMPORTING
+    OUTPUT = account_num.
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+  EXPORTING
+    INPUT  = cost_centre
+  IMPORTING
+    OUTPUT = cost_centre.
+
+* GL Account
+  e_accountgl-gl_account = account_num."'0000403172'."'0000172060'.
+e_accountgl-pstng_date      =  C_Posting_date."'20200206'."sy-datum."w_header-pstng_date.
+"e_accountgl-cs_trans_t      = "w_postings-ttype.
+if wa_record-Account eq 172060 or wa_record-Account eq 182382 or wa_record-Account eq 902208 or wa_record-Account eq 902214
+  or wa_record-Account eq 181926.
+e_accountgl-costcenter      = ''.
+else.
+e_accountgl-costcenter      = cost_centre."wa_record-Cost_centre."'0010000000'."w_postings-ccent.
+endif.
+"e_accountgl-profit_ctr      = "w_postings-prcent.
+"e_accountgl-wbs_element     = "w_postings-wbs_element.
+"e_accountgl-orderid         = "w_postings-internal_order.
+e_accountgl-item_text       = wa_record-Doc_text."'back 4 the 1st time'."w_postings-description.
+"e_accountgl-alloc_nmbr      = "w_postings-assignment.
+if wa_record-Account eq 172060 or wa_record-Account eq 182382 or wa_record-Account eq 902208 or wa_record-Account eq 902214
+  or wa_record-Account eq 181926.
+ e_accountgl-tax_code = ''.
+  else.
+e_accountgl-tax_code        = wa_record-Tax_code."'v0'."w_postings-tax_code.
+endif.
+
+
+append e_accountgl to t_accountgl.
+
+
+clear e_currencyamount.
+
+* For each line item (GL Account, AP or AR), set up the
+* values per related tables.
+
+* For example, the following line item refers to GL Acc
+* Item nº 2
+  e_currencyamount-itemno_acc = count."2.
+
+* Currency Key
+  e_currencyamount-currency   = wa_record-Currency."'USD'.
+
+* Document Currency amount
+  e_currencyamount-amt_doccur =  amt * ( -1 )."'-2.00'.
+
+  append e_currencyamount to t_currencyamount.
+
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+"VENDORS
+"Credit
+ELSEif wa_record-Posting_key eq '31'.
+""""""""""""iteeeeeeeeeeeeeeeeeeeeeeeee 31""""""""""""""""""""""""""""""""""""""
+  count = count + 1.
+CLEAR: ls_accountpayable.
+ls_accountpayable-itemno_acc = count."3. """count.
+
+
+CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+  EXPORTING
+    INPUT  = account_num
+  IMPORTING
+    OUTPUT = account_num.
+
+
+
+ls_accountpayable-vendor_no  = account_num."'0000302581'.
+*  ls_accountpayable-gl_account = '0000161000'.
+""""""""""""""""""ls_accountpayable-gl_account = '0000160050'.
+ls_accountpayable-comp_code = 'TEL1'.
+*ls_accountpayable-pmnttrms = '0001'.
+ls_accountpayable-bline_date = sy-datum.
+*ls_accountpayable-pymt_meth = 'E'.
+
+*  ls_accountpayable-tax_code  = 'i0'.
+ls_accountpayable-item_text  = wa_record-Doc_text."'BELINA Test A/P l item'.
+                                                            "#EC NOTEXT
+APPEND ls_accountpayable TO it_accountpayable.
+
+""" fill_currencyamount.
+
+CLEAR: loc_amt.
+
+*CLEAR: e_currencyamount,loc_amt.
+****  loc_amt = <lsy_output>-betrw.
+*e_currencyamount-itemno_acc =  3. ""count.
+*"ls_currencyamount-curr_type    = '00'.
+*e_currencyamount-currency     = 'USD'.
+*e_currencyamount-amt_doccur   =  '2.00'.
+****  ls_currencyamount-amt_base   =  '10.00'. "" loc_amt. ""( For  Debit / ‘S’)
+*
+*APPEND e_currencyamount TO t_currencyamount.
+
+CLEAR: e_currencyamount,loc_amt.
+***  loc_amt = <lsy_output>-betrw.
+e_currencyamount-itemno_acc   = count."3. ""count + 1.
+*e_currencyamount-curr_type    = '00'.
+*e_currencyamount-amt_doccur    = '0'.
+e_currencyamount-currency     = wa_record-Currency."'USD'.
+e_currencyamount-amt_doccur   =   amt * ( -1 )."'-2.00'.
+***  ls_currencyamount-amt_base   =  '-10.00'. ""( -1 ) * ( loc_amt ). "" ( For Credit /‘H’)
+*
+APPEND e_currencyamount TO t_currencyamount.
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+"Debit
+ELSEif wa_record-Posting_key eq '25' or wa_record-Posting_key eq '27' or
+  wa_record-Posting_key eq '28'.
+""""""""""""iteeeeeeeeeeeeeeeeeeeeeeeee 31""""""""""""""""""""""""""""""""""""""
+  count = count + 1.
+CLEAR: ls_accountpayable.
+ls_accountpayable-itemno_acc = count."3. """count.
+
+
+CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+  EXPORTING
+    INPUT  = account_num
+  IMPORTING
+    OUTPUT = account_num.
+
+
+
+ls_accountpayable-vendor_no  = account_num."'0000302581'.
+*  ls_accountpayable-gl_account = '0000161000'.
+""""""""""""""""""ls_accountpayable-gl_account = '0000160050'.
+ls_accountpayable-comp_code = 'TEL1'.
+*ls_accountpayable-pmnttrms = '0001'.
+ls_accountpayable-bline_date = sy-datum.
+*ls_accountpayable-pymt_meth = 'E'.
+
+*  ls_accountpayable-tax_code  = 'i0'.
+ls_accountpayable-item_text  = wa_record-Doc_text."'BELINA Test A/P l item'.
+                                                            "#EC NOTEXT
+APPEND ls_accountpayable TO it_accountpayable.
+
+""" fill_currencyamount.
+
+CLEAR: loc_amt.
+
+*CLEAR: e_currencyamount,loc_amt.
+****  loc_amt = <lsy_output>-betrw.
+*e_currencyamount-itemno_acc =  3. ""count.
+*"ls_currencyamount-curr_type    = '00'.
+*e_currencyamount-currency     = 'USD'.
+*e_currencyamount-amt_doccur   =  '2.00'.
+****  ls_currencyamount-amt_base   =  '10.00'. "" loc_amt. ""( For  Debit / ‘S’)
+*
+*APPEND e_currencyamount TO t_currencyamount.
+
+CLEAR: e_currencyamount,loc_amt.
+***  loc_amt = <lsy_output>-betrw.
+e_currencyamount-itemno_acc   = count."3. ""count + 1.
+*e_currencyamount-curr_type    = '00'.
+*e_currencyamount-amt_doccur    = '0'.
+e_currencyamount-currency     = wa_record-Currency."'USD'.
+e_currencyamount-amt_doccur   =   amt."'-2.00'.
+***  ls_currencyamount-amt_base   =  '-10.00'. ""( -1 ) * ( loc_amt ). "" ( For Credit /‘H’)
+*
+APPEND e_currencyamount TO t_currencyamount.
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+"CUSTOMERS""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+"credit
+ELSEif wa_record-Posting_key eq '15'.
+"""""""""""iteeeeeeeeeeeeeeeeeeeeeeee 15"""""""""""""""""""""""""""""""""""""""""
+count = count + 1.
+CLEAR: ls_accountreceivable.
+ls_accountreceivable-itemno_acc = count."4. """count.
+
+
+CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+  EXPORTING
+    INPUT  = account_num
+  IMPORTING
+    OUTPUT = account_num.
+
+
+
+ls_accountreceivable-CUSTOMER  = account_num."'0000700397'.
+*  ls_accountpayable-gl_account = '0000161000'.
+"""""""""""ls_accountreceivable-gl_account = '0000142010'.
+ls_accountreceivable-comp_code = 'TEL1'.
+*ls_accountreceivable-pmnttrms = '0001'.
+ls_accountreceivable-bline_date = sy-datum.
+*ls_accountreceivable-pymt_meth = 'E'.
+
+*  ls_accountpayable-tax_code  = 'i0'.
+ls_accountreceivable-item_text  = wa_record-Doc_text."'BELINA Test A/P l item'.
+                                                            "#EC NOTEXT
+APPEND ls_accountreceivable TO it_accountreceivable.
+
+""" fill_currencyamount.
+
+CLEAR: loc_amt.
+
+CLEAR: e_currencyamount,loc_amt.
+***  loc_amt = <lsy_output>-betrw.
+e_currencyamount-itemno_acc   = count."4. ""count.
+"ls_currencyamount-curr_type    = '00'.
+e_currencyamount-currency     = wa_record-Currency."'USD'.
+e_currencyamount-amt_doccur   =   amt * ( -1 ) ."'-2.00'.
+***  ls_currencyamount-amt_base   =  '10.00'. "" loc_amt. ""( For  Debit / ‘S’)
+
+APPEND e_currencyamount TO t_currencyamount.
+
+*CLEAR: e_currencyamount,loc_amt.
+****  loc_amt = <lsy_output>-betrw.
+*e_currencyamount-itemno_acc   = 5. ""count + 1.
+*e_currencyamount-curr_type    = '00'.
+*e_currencyamount-amt_doccur    = '0'.
+*e_currencyamount-currency     = 'USD'.
+*e_currencyamount-amt_doccur   =  '-2.00'.
+***  ls_currencyamount-amt_base   =  '-10.00'. ""( -1 ) * ( loc_amt ). "" ( For Credit /‘H’)
+*
+*APPEND e_currencyamount TO t_currencyamount.
+
+"Debit
+ELSEif wa_record-Posting_key eq '07'.
+"""""""""""iteeeeeeeeeeeeeeeeeeeeeeee 15"""""""""""""""""""""""""""""""""""""""""
+count = count + 1.
+CLEAR: ls_accountreceivable.
+ls_accountreceivable-itemno_acc = count."4. """count.
+
+
+CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+  EXPORTING
+    INPUT  = account_num
+  IMPORTING
+    OUTPUT = account_num.
+
+
+
+ls_accountreceivable-CUSTOMER  = account_num."'0000700397'.
+*  ls_accountpayable-gl_account = '0000161000'.
+"""""""""""ls_accountreceivable-gl_account = '0000142010'.
+ls_accountreceivable-comp_code = 'TEL1'.
+*ls_accountreceivable-pmnttrms = '0001'.
+ls_accountreceivable-bline_date = sy-datum.
+*ls_accountreceivable-pymt_meth = 'E'.
+
+*  ls_accountpayable-tax_code  = 'i0'.
+ls_accountreceivable-item_text  = wa_record-Doc_text."'BELINA Test A/P l item'.
+                                                            "#EC NOTEXT
+APPEND ls_accountreceivable TO it_accountreceivable.
+
+""" fill_currencyamount.
+
+CLEAR: loc_amt.
+
+CLEAR: e_currencyamount,loc_amt.
+***  loc_amt = <lsy_output>-betrw.
+e_currencyamount-itemno_acc   = count."4. ""count.
+"ls_currencyamount-curr_type    = '00'.
+e_currencyamount-currency     = wa_record-Currency."'USD'.
+e_currencyamount-amt_doccur   =   amt ."'-2.00'.
+***  ls_currencyamount-amt_base   =  '10.00'. "" loc_amt. ""( For  Debit / ‘S’)
+
+APPEND e_currencyamount TO t_currencyamount.
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+ENDIF.
+endloop.
+
+
+
+
+
+  CALL FUNCTION 'BAPI_ACC_DOCUMENT_CHECK'
+**    destination dest
+    EXPORTING
+      documentheader = documentheader
+***      customercpd       = gd_customercpd
+***      contractheader    = gd_fica_hd
+    TABLES
+      accountgl      = t_accountgl
+accountreceivable = it_accountreceivable
+accountpayable = it_accountpayable
+     accounttax     = it_accounttax
+      currencyamount = t_currencyamount
+ "    criteria       = it_criteria
+  "   valuefield     = it_valuefield
+   "  extension1     = it_ext
+      return         = t_return.
+  "paymentcard       = it_paymentcard
+  " contractitem      = it_fica_it.
+*      extension2        = it_ext2
+*      realestate        = it_re.
+
+**********************
+* Calling UP BAPI FM *
+**********************
+*ENDLOOP.
+
+  call function 'BAPI_ACC_DOCUMENT_POST'
+    exporting
+      documentheader          = documentheader
+*       CUSTOMERCPD             =
+*       CONTRACTHEADER          =
+    importing
+      obj_type                = w_obj_type
+      obj_key                 = w_obj_key
+      obj_sys                 = w_obj_sys
+    tables
+      accountgl               = t_accountgl
+       ACCOUNTRECEIVABLE       = it_accountreceivable
+       ACCOUNTPAYABLE          = it_accountpayable
+*       ACCOUNTTAX              =
+      currencyamount          = t_currencyamount
+*       CRITERIA                =
+*       VALUEFIELD              =
+*       EXTENSION1              =
+      return                  = t_return
+*       PAYMENTCARD             =
+*       CONTRACTITEM            =
+*       EXTENSION2              =
+*       REALESTATE              =
+            .
+
+  call function 'BAPI_TRANSACTION_COMMIT'
+    exporting
+      wait          = 'X'
+*     IMPORTING
+*       RETURN        =
+            .
+
+  loop at t_return into e_return.
+
+    if  e_return-type   eq 'S'
+    and e_return-id     eq 'RW'
+    and e_return-number eq 605.
+
+      write: /01 e_return-type,
+              03 e_return-id,
+              10 e_return-number,
+              15 'Document Released ',
+              40 w_obj_type, w_obj_key, w_obj_sys.
+
+    else.
+
+      write: /01 e_return-type,
+              03 e_return-id,
+              10 e_return-number,
+              15 e_return-message.
+
+    endif.
+
+  endloop.
+
